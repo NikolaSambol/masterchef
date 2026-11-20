@@ -1,0 +1,6 @@
+# OS and editor files at the repository root.
+# backend/ and frontend/ have their own .gitignore for build output and local config.
+.DS_Store
+.idea/
+.vscode/
+*.iml

@@ -1,0 +1,20 @@
+# Local development configuration.
+# Copy this file to application.properties (which is git-ignored) and fill in the values.
+spring.application.name=recipeapp
+
+spring.datasource.url=jdbc:mysql://localhost:3306/recipeapp
+spring.datasource.username=root
+spring.datasource.password=CHANGE_ME
+
+spring.jpa.properties.hibernate.dialect=org.hibernate.dialect.MySQLDialect
+
+frontend.url=http://localhost:5173
+
+spring.mvc.servlet.path=/api
+
+# Base64-encoded HMAC key, at least 256 bits. Generate one with: openssl rand -base64 32
+spring.app.jwtSecret=CHANGE_ME
+spring.app.jwtExpirationMs=172800000
+
+spring.servlet.multipart.max-file-size=4MB
+spring.servlet.multipart.max-request-size=4MB

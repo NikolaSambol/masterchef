@@ -1,0 +1,235 @@
+package com.mev.recipeapp.service.impl;
+
+import com.mev.recipeapp.dtos.*;
+import com.mev.recipeapp.dtos.requests.CreateRecipeRequest;
+import com.mev.recipeapp.models.Category;
+import com.mev.recipeapp.models.Component;
+import com.mev.recipeapp.models.Recipe;
+import com.mev.recipeapp.models.User;
+import com.mev.recipeapp.repository.CategoryRepository;
+import com.mev.recipeapp.repository.ComponentRepository;
+import com.mev.recipeapp.repository.RecipeRepository;
+import com.mev.recipeapp.repository.UserRepository;
+import com.mev.recipeapp.service.RecipeService;
+import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
+import org.springframework.stereotype.Service;
+
+import java.util.ArrayList;
+import java.util.Base64;
+import java.util.List;
+import java.util.stream.Collectors;
+
+@Service
+@RequiredArgsConstructor
+public class RecipeServiceImpl implements RecipeService {
+
+    private final RecipeRepository recipeRepository;
+
+
+
+    private final CategoryRepository categoryRepository;
+
+    private final UserRepository userRepository;
+
+    private final ComponentRepository componentRepository;
+
+    @Override
+    public Recipe createRecipe(CreateRecipeRequest recipeRequest, String email) {
+        User user = userRepository.findByEmailWithRole(email);
+        if (user == null) {
+            throw new RuntimeException("User with email: " + email + " does not exist!");
+        }
+
+        Category category = categoryRepository.findById(recipeRequest.getCategory())
+                .orElseThrow(() -> new RuntimeException("Kategorija s id: " + recipeRequest.getCategory() + " ne postoji!"));
+
+        Recipe recipe = new Recipe();
+        recipe.setRecipeName(recipeRequest.getName());
+        recipe.setPreparationTime(recipeRequest.getPreparationTime());
+        recipe.setUser(user);
+        recipe.setCategory(category);
+
+        try {
+            if (recipeRequest.getImage() != null && !recipeRequest.getImage().isEmpty()) {
+                recipe.setImage(recipeRequest.getImage().getBytes());
+            }
+            if (recipeRequest.getVideo() != null && !recipeRequest.getVideo().isEmpty()) {
+                recipe.setVideo(recipeRequest.getVideo().getBytes());
+            }
+        } catch (Exception e) {
+            throw new RuntimeException("Greška pri spremanju slike ili videa!", e);
+        }
+
+        return recipeRepository.save(recipe);
+    }
+
+
+
+    @Override
+    public Recipe updateRecipe(Long id, CreateRecipeRequest recipeRequest) {
+        Recipe recipe = recipeRepository.findById(id)
+                .orElseThrow(() -> new RuntimeException("Recipe with id: " + id + " does not exist!"));
+
+        if (recipeRequest.getName() != null && !recipeRequest.getName().isBlank()) {
+            recipe.setRecipeName(recipeRequest.getName());
+        }
+
+        try {
+            if (recipeRequest.getImage() != null && !recipeRequest.getImage().isEmpty()) {
+                recipe.setImage(recipeRequest.getImage().getBytes());
+            }
+            if (recipeRequest.getVideo() != null && !recipeRequest.getVideo().isEmpty()) {
+                recipe.setVideo(recipeRequest.getVideo().getBytes());
+            } else if (recipeRequest.isDeleteVideo()) {
+                // Only remove the video when the user explicitly asked for it. Previously every
+                // update without a new upload (e.g. just renaming the recipe) deleted the video.
+                recipe.setVideo(null);
+            }
+        } catch (Exception e) {
+            throw new RuntimeException("Greška pri ažuriranju slike ili videa!", e);
+        }
+
+        if (recipeRequest.getPreparationTime() != null && !recipeRequest.getPreparationTime().isBlank()) {
+            recipe.setPreparationTime(recipeRequest.getPreparationTime());
+        }
+
+        if (recipeRequest.getCategory() != null) {
+            Category category = categoryRepository.findById(recipeRequest.getCategory())
+                    .orElseThrow(() -> new RuntimeException("Kategorija s id: " + recipeRequest.getCategory() + " ne postoji!"));
+            recipe.setCategory(category);
+        }
+
+        return recipeRepository.save(recipe);
+    }
+
+
+    @Override
+    public void deleteRecipeById(Long id) {
+        recipeRepository.deleteById(id);
+    }
+
+    @Override
+    public Recipe getRecipeById(Long id) {
+        return recipeRepository.findById(id)
+                .orElseThrow(() -> new RuntimeException("Recept s id: " + id + " ne postoji!"));
+    }
+
+    @Override
+    public Page<RecipeDTO> getAllRecipes(Long categoryId, String recipeName, Pageable pageable) {
+        return recipeRepository.findAllFiltered(categoryId, recipeName, pageable)
+                .map(p -> new RecipeDTO(
+                        p.getId(),
+                        p.getRecipeName(),
+                        p.getCreationDate() != null ? p.getCreationDate().toString() : null,
+                        encodeToBase64(p.getImagePath()),
+                        null,
+                        p.getPreparationTime(),
+                        null, // components null
+                        null, // category null
+                        new UserDTO(
+                                p.getUserName(),
+                                p.getUserSurname(),
+                                p.getUserEmail()
+                        )
+                ));
+
+    }
+
+    @Override
+    public List<RecipeDTO> getFrontPageRecipes() {
+        return recipeRepository.findAllWithUsers()
+                .stream()
+                .map(recipe -> new RecipeDTO(
+                        recipe.getId(),
+                        recipe.getRecipeName(),
+                        recipe.getCreationDate().toString(),
+                        encodeToBase64(recipe.getImage()),
+                        null,
+                        recipe.getPreparationTime(),
+                        null,
+                        null,
+                        new UserDTO(recipe.getUser().getName(), recipe.getUser().getSurname(), recipe.getUser().getEmail())
+                ))
+                .collect(Collectors.toList());
+
+    }
+
+    @Override
+    public RecipeDTO getRecipeWithDetails(Long recipeId) {
+        Recipe recipe = recipeRepository.findRecipeWithComponents(recipeId)
+                .orElseThrow(() -> new IllegalArgumentException("Recipe not found with id: " + recipeId));
+        List<Component> components = recipe.getComponents();
+
+        // Pretvaranje u DTO
+        return new RecipeDTO(
+                recipe.getId(),
+                recipe.getRecipeName(),
+                recipe.getCreationDate().toString(),
+                encodeToBase64(recipe.getImage()),
+                encodeToBase64(recipe.getVideo()),
+                recipe.getPreparationTime(),
+                components.stream().map(this::mapToComponentDTO).toList(),
+                new CategoryDTO(recipe.getCategory().getName()),
+                new UserDTO(recipe.getUser().getName(), recipe.getUser().getSurname(), recipe.getUser().getEmail())
+        );
+    }
+
+    @Override
+    public List<RecipeSummaryDTO> getRecipeSummaryByUserId(Long userId) {
+        List<Recipe> recipes = recipeRepository.findByUserId(userId);
+
+        List<RecipeSummaryDTO> recipeDTOS = new ArrayList<RecipeSummaryDTO>();
+
+        for (Recipe recipe : recipes) {
+            RecipeSummaryDTO newRecipe = new RecipeSummaryDTO(
+                    recipe.getId(),
+                    recipe.getRecipeName(),
+                    recipe.getCreationDate().toString());
+
+            recipeDTOS.add(newRecipe);
+        }
+
+        return recipeDTOS;
+
+    }
+
+    @Override
+    public List<RecipeDTO> getRecipesByUserId(Long userId) {
+        List<Recipe> recipes = recipeRepository.findByUserId(userId);
+
+        List<RecipeDTO> recipeDTOS = new ArrayList<RecipeDTO>();
+
+        for (Recipe recipe : recipes) {
+            RecipeDTO newRecipe = new RecipeDTO(recipe.getId(),
+                    recipe.getRecipeName(),
+                    recipe.getCreationDate().toString(),
+                    encodeToBase64(recipe.getImage()),
+                    null,
+                    recipe.getPreparationTime(),
+                    null,
+                    null,
+                    new UserDTO(recipe.getUser().getName(), recipe.getUser().getSurname(), recipe.getUser().getEmail()));
+
+            recipeDTOS.add(newRecipe);
+        }
+
+        return recipeDTOS;
+    }
+
+    private ComponentDTO mapToComponentDTO(Component component) {
+        return new ComponentDTO(
+                component.getId(),
+                component.getComponentName(),
+                encodeToBase64(component.getImage()),
+                component.getIngredients() != null ? component.getIngredients().getDescription() : null,
+                component.getInstruction().getDescription()
+        );
+    }
+
+    private String encodeToBase64(byte[] data) {
+        return data != null ? Base64.getEncoder().encodeToString(data) : null;
+    }
+
+}

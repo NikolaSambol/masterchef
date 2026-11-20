@@ -1,0 +1,14 @@
+package com.mev.recipeapp.projections;
+
+import java.time.LocalDate;
+
+public interface RecipeUserProjection {
+    Long getId();
+    String getRecipeName();
+    LocalDate getCreationDate();
+    byte[] getImagePath();
+    String getPreparationTime();
+    String getUserName();
+    String getUserSurname();
+    String getUserEmail();
+}
